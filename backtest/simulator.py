@@ -13,6 +13,7 @@ from datetime import date, datetime
 import pandas as pd
 import numpy as np
 
+from config.market_config import MARKET_CONFIG
 from utils.logger import get_logger
 from utils.calculator import calculate_lot_size as calc_lot
 
@@ -145,6 +146,27 @@ class BacktestSimulator:
 
             candle_low = current_candle.get("low", 0)
             candle_high = current_candle.get("high", 0)
+
+            config = MARKET_CONFIG.get(pos["asset"], {})
+            be_threshold = config.get("be_threshold", 1.0)
+
+            if pos["etat"] == "SHIELD":
+                if pos["direction"] == "BUY":
+                    profit_points = (candle_high - pos["entry_price"]) / self._price_per_point(pos["asset"])
+                    pnl_flottant = profit_points * POINT_VALUES.get(pos["asset"], 10.0) * pos["lot_size"]
+                else:
+                    profit_points = (pos["entry_price"] - candle_low) / self._price_per_point(pos["asset"])
+                    pnl_flottant = profit_points * POINT_VALUES.get(pos["asset"], 10.0) * pos["lot_size"]
+
+                seuil_be = be_threshold * atr_m1 * POINT_VALUES.get(pos["asset"], 10.0) * pos["lot_size"] / self._price_per_point(pos["asset"])
+
+                if pnl_flottant >= seuil_be:
+                    pos["etat"] = "TRACKER"
+                    pos["sl_price"] = pos["entry_price"]
+                    logger.debug(
+                        f"PULSE {pos['asset']} #{pos['id']}: SHIELD → TRACKER "
+                        f"(BE atteint, sl déplacé à {pos['entry_price']:.5f})"
+                    )
 
             if pos["direction"] == "BUY":
                 if candle_low <= pos["sl_price"]:

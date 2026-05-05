@@ -276,6 +276,15 @@ class BacktestEngine:
                      f"entry={signal['entry']:.5f} sl={sl_price:.5f} "
                      f"dist={sl_distance:.5f} lot={lot_size:.2f} risk={risk:.2f}")
 
+        # Maximum 1 position ouverte par actif à la fois
+        positions_ouvertes = [
+            p for p in self.simulator.open_positions
+            if p["asset"] == self.asset
+        ]
+        if len(positions_ouvertes) >= 1:
+            logger.debug(f"SIGNAL IGNORE — position déjà ouverte sur {self.asset}")
+            return
+
         self.simulator.open_position(
             asset=self.asset,
             direction=signal["direction"],

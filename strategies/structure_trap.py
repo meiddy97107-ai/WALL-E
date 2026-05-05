@@ -146,19 +146,6 @@ class StructureTrap:
         else:
             return None
 
-        sm = self.state.get(asset, {})
-        sl_buffer = asset_config.get("sl_buffer", 0.5)
-        last_low = float(candles_m1["low"].iloc[-1])
-        last_high = float(candles_m1["high"].iloc[-1])
-        if scenario == "CONTINUATION_BUY":
-            sl = sm.get("l1", last_low) - (atr_m1 * sl_buffer)
-        elif scenario == "SWEEP_BUY":
-            sl = sm.get("l2", last_low) - (atr_m1 * sl_buffer)
-        elif scenario == "CONTINUATION_SELL":
-            sl = sm.get("h1", last_high) + (atr_m1 * sl_buffer)
-        else:
-            sl = sm.get("h2", last_high) + (atr_m1 * sl_buffer)
-
         self._diag["ema_triggered"] += 1
         self._diag["signal_emis"] += 1
 
@@ -168,7 +155,7 @@ class StructureTrap:
             "asset": asset,
             "direction": direction,
             "entry": entry,
-            "sl": sl,
+            "sl": 0.0,
             "atr_m1": atr_m1,
             "scenario": scenario,
             "strategie": "STRUCTURE_TRAP",
@@ -177,7 +164,7 @@ class StructureTrap:
 
         logger.info(
             f"SIGNAL {asset} | {scenario} | "
-            f"Direction={direction} Entry={entry:.5f} SL={sl:.5f}"
+            f"Direction={direction} Entry={entry:.5f} SL=0.00000"
         )
 
         self._reset_state(asset)
