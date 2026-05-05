@@ -48,7 +48,7 @@ class PulseManager:
         self.risk_mgr = risk_manager
         self._positions = {}
 
-        self.shield = Shield()
+        self.shield = Shield(data_feed)
         self.tracker = Tracker()
         self.rocket = Rocket(data_feed)
         self.anti_chop = AntiChop()
@@ -115,6 +115,13 @@ class PulseManager:
                 self.risk_mgr.on_trade_be_reached(ticket)
                 logger.info(f"PULSE: SL ramene au BE pour ticket={ticket}")
 
+        # Appliquer le nouveau SL de TRACKER/ROCKET si ameliore
+        new_sl = updated.get("sl", position.get("sl"))
+        old_sl = position.get("sl")
+        if new_sl is not None and old_sl is not None and new_sl != old_sl:
+            if self.order_mgr.modify_sl(ticket, float(new_sl)):
+                logger.debug(f"PULSE: SL ajuste ticket={ticket} {old_sl:.5f} -> {float(new_sl):.5f}")
+
         # Gerer les EXIT
         if updated.get("action") == "EXIT" or updated.get("etat") == "EXIT":
             logger.info(f"PULSE EXIT: fermeture ticket={ticket} raison={updated.get('etat', 'EXIT')}")
@@ -136,6 +143,8 @@ class PulseManager:
 
         # Mettre a jour la position
         self._positions[ticket] = updated
+        if hasattr(self.order_mgr, "sync_state"):
+            self.order_mgr.sync_state(ticket, updated)
 
         # Logger les transitions
         if updated["etat"] != old_etat:

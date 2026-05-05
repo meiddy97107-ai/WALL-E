@@ -5,37 +5,37 @@
 =======================================================
 
 --- METRIQUES DE BASE ---
-  Trades total       : 3
-  Winning trades     : 1
+  Trades total       : 4
+  Winning trades     : 2
   Losing trades      : 2
-  Win Rate           : 33.3%
+  Win Rate           : 50.0%
 
 --- METRIQUES DE PROFIT ---
-  PnL total          : +298.50
-  PnL total (%)      : +12.0%
-  Avg Win            : 298.50
-  Avg Loss           : 0.00
-  Profit Factor      : 0.00
-  Expectancy         : 99.50
+  PnL total          : -27.90
+  PnL total (%)      : -1.1%
+  Avg Win            : 4.05
+  Avg Loss           : 18.00
+  Profit Factor      : 0.22
+  Expectancy         : -6.97
 
 --- METRIQUES DE RISQUE ---
   Max Drawdown       : 0.00 (0.0%)
-  Max Daily DD       : 0.00 (0.0%)
+  Max Daily DD       : 36.00 (1.5%)
   Sharpe Ratio       : 0.00
   Calmar Ratio       : 0.00
 
 --- METRIQUES PULSE ---
-  Shield (SL)        : 2
+  Shield (SL)        : 0
   Tracker            : 0
   Rocket             : 0 (0.0%)
 
 --- METRIQUES THE5ERS ---
-  Max Daily DD (%)   : 0.0%
+  Max Daily DD (%)   : 1.5%
   Daily Limit Hits   : 0
 
 --- FREQUENCE ---
-  Avg Duration (min) : 0.2
-  Best Month         : 2.00
+  Avg Duration (min) : 0.0
+  Best Month         : 3.00
   Worst Month        : 1.00
 
 =======================================================

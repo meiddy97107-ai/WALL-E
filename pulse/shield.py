@@ -23,6 +23,9 @@ class Shield:
     vers TRACKER lorsque le seuil de break-even est atteint.
     """
 
+    def __init__(self, data_feed=None):
+        self.data_feed = data_feed
+
     def update(self, position: dict, atr_m1: float, config: dict) -> dict:
         """Met à jour une position en état SHIELD.
 
@@ -86,4 +89,12 @@ class Shield:
         Returns:
             Prix estimé actuel.
         """
+        if self.data_feed is not None:
+            asset = position.get("actif")
+            if asset:
+                px = self.data_feed.get_current_price(asset)
+                if isinstance(px, dict):
+                    if position.get("direction") == "BUY":
+                        return float(px.get("bid", 0.0))
+                    return float(px.get("ask", 0.0))
         return position.get("prix_entree", 0.0)

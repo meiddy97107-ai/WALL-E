@@ -45,7 +45,7 @@ def get_current_utc_time() -> datetime:
     return datetime.now(UTC_TZ)
 
 
-def is_time_between(start: str, end: str, tz=None) -> bool:
+def is_time_between(start: str, end: str, tz=None, now: datetime = None) -> bool:
     """Vérifie si l'heure actuelle est entre deux horaires.
 
     Les horaires sont au format "HH:MM". Gère le passage minuit
@@ -59,10 +59,11 @@ def is_time_between(start: str, end: str, tz=None) -> bool:
     Returns:
         True si l'heure actuelle est dans la plage.
     """
-    if tz is None:
-        now = get_current_paris_time()
-    else:
-        now = datetime.now(tz)
+    if now is None:
+        if tz is None:
+            now = get_current_paris_time()
+        else:
+            now = datetime.now(tz)
 
     now_minutes = now.hour * 60 + now.minute
     start_h, start_m = map(int, start.split(":"))

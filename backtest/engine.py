@@ -25,12 +25,64 @@ from risk.risk_manager import RiskManager
 from risk.streak_brake import StreakBrake
 from strategies.structure_trap import StructureTrap
 from strategies.smc_session import SMCSession
+from pulse.pulse_manager import PulseManager
 from indicators.atr import calculate_atr
 from utils.logger import get_logger
 
 logger = get_logger("backtest_engine")
 
 PROGRESS_INTERVAL = 10000
+
+
+class BacktestOrderManagerAdapter:
+    """Adaptateur OrderManager pour permettre a PulseManager de piloter le simulateur."""
+
+    def __init__(self, simulator: BacktestSimulator):
+        self.simulator = simulator
+        self._current_time = datetime.now()
+        self._current_price = 0.0
+
+    def set_market_context(self, current_time: datetime, current_price: float) -> None:
+        self._current_time = current_time
+        self._current_price = current_price
+
+    def modify_sl(self, ticket: int, new_sl: float) -> bool:
+        for pos in self.simulator.open_positions:
+            if pos.get("id") == ticket or pos.get("ticket") == ticket:
+                pos["sl_price"] = new_sl
+                pos["sl"] = new_sl
+                return True
+        return False
+
+    def close_position(self, ticket: int, reason: str = "") -> bool:
+        closed = self.simulator.close_position(
+            ticket,
+            self._current_price,
+            self._current_time,
+            reason or "PULSE_EXIT",
+        )
+        return closed is not None
+
+    def get_open_positions(self) -> list:
+        positions = []
+        for p in self.simulator.open_positions:
+            positions.append({
+                "ticket": p.get("id"),
+                "symbol": p.get("asset"),
+                "asset": p.get("asset"),
+                "direction": p.get("direction"),
+                "price": p.get("entry_price"),
+                "sl": p.get("sl_price"),
+            })
+        return positions
+
+    def sync_state(self, ticket: int, state: dict) -> None:
+        for pos in self.simulator.open_positions:
+            if pos.get("id") == ticket or pos.get("ticket") == ticket:
+                pos["etat"] = state.get("etat", pos.get("etat"))
+                pos["sl_price"] = state.get("sl", pos.get("sl_price"))
+                pos["sl"] = state.get("sl", pos.get("sl"))
+                break
 
 
 class BacktestEngine:
@@ -48,9 +100,12 @@ class BacktestEngine:
         self.connector = MT5Connector()
         self.loader = BacktestDataLoader(self.connector)
         self.simulator = BacktestSimulator(initial_balance)
+        self.order_adapter = BacktestOrderManagerAdapter(self.simulator)
         self.risk_mgr = RiskManager()
         self.streak_brake = StreakBrake()
         self.backtest_data_feed = BacktestDataFeed()
+        self.pulse_mgr = PulseManager(self.backtest_data_feed, self.order_adapter, self.risk_mgr)
+        self._traded_day_by_asset = {}
 
         # Initialiser la strategie avec le BacktestDataFeed
         if strategy_name == "structure_trap":
@@ -97,6 +152,7 @@ class BacktestEngine:
                 # Mettre a jour le DataFeed avec le temps courant (tous timeframes)
                 self.backtest_data_feed.set_time(current_time)
                 self.backtest_data_feed.set_current_price(float(current_candle["close"]))
+                self.order_adapter.set_market_context(current_time, float(current_candle["close"]))
 
                 # a. Snapshot daily a 00h00 (premiere bougie du jour)
                 if previous_date is not None and current_date != previous_date:
@@ -106,9 +162,18 @@ class BacktestEngine:
                     skip_next = False
                 previous_date = current_date
 
-                # b. Kill switch si 21h45
-                if current_hour >= 21 and current_minute >= 45:
+                # b. Kill switch a partir de 21h45 (inclus), toute la soiree
+                if (current_hour > 21) or (current_hour == 21 and current_minute >= 45):
                     continue
+
+                asset_config = MARKET_CONFIG.get(self.asset, {})
+                if asset_config.get("contexte") == "asian_box":
+                    cutoff = asset_config.get("signal_cutoff", "11:30")
+                    cutoff_h, cutoff_m = map(int, cutoff.split(":"))
+                    if current_hour == cutoff_h and current_minute == cutoff_m:
+                        # Cutoff = fin de prise de signal uniquement.
+                        # Les positions deja ouvertes restent gerees par PULSE/SL.
+                        pass
 
                 # c. Daily loss limit
                 if self.simulator.check_daily_limit(current_date):
@@ -119,14 +184,25 @@ class BacktestEngine:
                     continue
                 skip_next = self.streak_brake.should_skip_next_signal()
 
+                # Regle metier asian_box: un seul trade par jour et par actif
+                if asset_config.get("contexte") == "asian_box":
+                    traded_day = self._traded_day_by_asset.get(self.asset)
+                    if traded_day == current_date.isoformat():
+                        continue
+
                 # e. Mettre a jour les positions (SL check)
                 atr_m1 = calculate_atr(
                     self._get_recent(candles_m1, i, 50), 14
                 ) if i >= 15 else 0.001
+
+                # Mise a jour PULSE (Shield -> Tracker -> Rocket)
+                self.pulse_mgr.update_all(self.order_adapter.get_open_positions())
+
                 closed = self.simulator.update_positions(
                     current_candle, self.asset, atr_m1
                 )
                 for trade in closed:
+                    self.pulse_mgr.on_position_closed(trade.get("id", 0), reason=trade.get("exit_reason", ""))
                     result = "WIN" if trade.get("pnl_eur", 0) >= 0 else "LOSS"
                     self.streak_brake.on_trade_closed(result)
 
@@ -285,7 +361,7 @@ class BacktestEngine:
             logger.debug(f"SIGNAL IGNORE — position déjà ouverte sur {self.asset}")
             return
 
-        self.simulator.open_position(
+        opened = self.simulator.open_position(
             asset=self.asset,
             direction=signal["direction"],
             lot_size=lot_size,
@@ -294,7 +370,21 @@ class BacktestEngine:
             risk_eur=risk,
             strategie=self.strategy_name,
             conviction=signal.get("conviction", "STANDARD"),
+            entry_time=current_candle["time"],
         )
+        if opened:
+            self.pulse_mgr.on_position_opened({
+                "ticket": opened.get("id"),
+                "actif": self.asset,
+                "direction": signal["direction"],
+                "prix_entree": signal["entry"],
+                "sl": sl_price,
+                "risk_initial_": risk,
+                "conviction": signal.get("conviction", "STANDARD"),
+                "strategie": self.strategy_name.upper(),
+                "reference_mid": signal.get("reference_mid", 0.0),
+            })
+            self._traded_day_by_asset[self.asset] = current_candle["time"].date().isoformat()
 
     def _get_recent(self, df: pd.DataFrame, index: int, n: int) -> pd.DataFrame:
         """Retourne les N dernieres bougies jusqu'a index (exclu)."""

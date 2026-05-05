@@ -64,7 +64,8 @@ class BacktestSimulator:
                       entry_candle: pd.Series = None,
                       risk_eur: float = 0.0,
                       strategie: str = "",
-                      conviction: str = "STANDARD") -> dict | None:
+                      conviction: str = "STANDARD",
+                      entry_time: datetime | None = None) -> dict | None:
         """Simule l'ouverture d'un ordre.
 
         Args:
@@ -105,12 +106,14 @@ class BacktestSimulator:
 
         position = {
             "id": self._next_id,
+            "ticket": self._next_id,
             "asset": asset,
             "direction": direction,
             "lot_size": lot_size,
             "entry_price": entry_price,
             "sl_price": sl_price,
-            "entry_time": datetime.now(),
+            "sl": sl_price,
+            "entry_time": entry_time or datetime.now(),
             "risk_eur": risk_eur,
             "strategie": strategie,
             "conviction": conviction,
@@ -147,34 +150,13 @@ class BacktestSimulator:
             candle_low = current_candle.get("low", 0)
             candle_high = current_candle.get("high", 0)
 
-            config = MARKET_CONFIG.get(pos["asset"], {})
-            be_threshold = config.get("be_threshold", 2.0)
-
-            if pos["etat"] == "SHIELD":
-                close_price = float(current_candle.get("close", 0))
-
-                if pos["direction"] == "BUY":
-                    profit_points = (close_price - pos["entry_price"]) / self._price_per_point(pos["asset"])
-                else:
-                    profit_points = (pos["entry_price"] - close_price) / self._price_per_point(pos["asset"])
-
-                if profit_points <= 0:
-                    continue  # Pas en profit sur le close → pas de BE
-
-                pnl_flottant = profit_points * POINT_VALUES.get(pos["asset"], 10.0) * pos["lot_size"]
-
-                seuil_be = be_threshold * 2 * atr_m1 * POINT_VALUES.get(pos["asset"], 10.0) * pos["lot_size"] / self._price_per_point(pos["asset"])
-
-                if pnl_flottant >= seuil_be:
-                    pos["etat"] = "TRACKER"
-                    pos["sl_price"] = pos["entry_price"]
-                    logger.debug(
-                        f"PULSE {pos['asset']} #{pos['id']}: SHIELD → TRACKER "
-                        f"(BE atteint, sl déplacé à {pos['entry_price']:.5f})"
-                    )
-
             if pos["direction"] == "BUY":
                 if candle_low <= pos["sl_price"]:
+                    exit_reason = "SL_HIT"
+                    if pos.get("etat") == "TRACKER":
+                        exit_reason = "PULSE_TRACKER"
+                    elif pos.get("etat") == "ROCKET":
+                        exit_reason = "PULSE_ROCKET"
                     logger.info(
                         f"DEBUG SL HIT: {pos['direction']} {pos['asset']} "
                         f"entry={pos['entry_price']:.5f} "
@@ -185,11 +167,16 @@ class BacktestSimulator:
                     exit_price = pos["sl_price"]
                     closed_trade = self.close_position(pos["id"], exit_price,
                                         current_candle.name if isinstance(current_candle.name, datetime) else current_candle.get("time"),
-                                        "SL_HIT")
+                                        exit_reason)
                     if closed_trade:
                         closed_positions.append(closed_trade)
             else:
                 if candle_high >= pos["sl_price"]:
+                    exit_reason = "SL_HIT"
+                    if pos.get("etat") == "TRACKER":
+                        exit_reason = "PULSE_TRACKER"
+                    elif pos.get("etat") == "ROCKET":
+                        exit_reason = "PULSE_ROCKET"
                     logger.info(
                         f"DEBUG SL HIT: {pos['direction']} {pos['asset']} "
                         f"entry={pos['entry_price']:.5f} "
@@ -200,7 +187,7 @@ class BacktestSimulator:
                     exit_price = pos["sl_price"]
                     closed_trade = self.close_position(pos["id"], exit_price,
                                         current_candle.name if isinstance(current_candle.name, datetime) else current_candle.get("time"),
-                                        "SL_HIT")
+                                        exit_reason)
                     if closed_trade:
                         closed_positions.append(closed_trade)
 

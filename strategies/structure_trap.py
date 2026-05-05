@@ -11,7 +11,7 @@ from indicators.atr import calculate_atr
 from indicators.ema import calculate_ema, get_slope
 from indicators.bollinger import calculate_bollinger
 from utils.logger import get_logger
-from utils.time_utils import get_current_paris_time
+from utils.time_utils import get_current_paris_time, is_time_between
 from config.market_config import MARKET_CONFIG
 
 logger = get_logger("strategy_structure_trap")
@@ -56,6 +56,7 @@ class StructureTrap:
         self.data_feed = data_feed
         self.config = config or {}
         self.state = {}
+        self._traded_day = {}
         self._asian_box_cache = {}
         self._diag = self._init_diag()
 
@@ -91,6 +92,13 @@ class StructureTrap:
         6. Entree immediate au marche selon scenario (sans EMA)
         """
         self._diag["total"] += 1
+
+        current_time = self._get_backtest_time(asset)
+        today = current_time.strftime("%Y-%m-%d")
+
+        # Un seul trade par jour par actif: après premier signal valide, on verrouille.
+        if self._traded_day.get(asset) == today:
+            return None
 
         if self.state.get(asset, {}).get("cooldown_bars", 0) > 0:
             self.state[asset]["cooldown_bars"] -= 1
@@ -169,6 +177,7 @@ class StructureTrap:
 
         self._reset_state(asset)
         self.state[asset] = {"cooldown_bars": 30}
+        self._traded_day[asset] = today
         return result
 
     # ──────────────────────────────────────────
@@ -440,13 +449,13 @@ class StructureTrap:
         # Pas de cache du jour: la box ne se calcule que dans la fenetre 02:00-08:00.
         box_start = config.get("asian_box_start", "02:00")
         box_end = config.get("asian_box_end", "08:00")
-        if not self._is_time_between_str(current_hour_str, box_start, box_end):
+        if not is_time_between(box_start, box_end, now=current_time):
             return None
 
         cutoff = config.get("signal_cutoff", "11:30")
-        if not self._is_time_between_str(current_hour_str, config.get("asian_box_start", "02:00"), cutoff):
-            if not self._is_time_between_str(current_hour_str, config.get("asian_box_start", "02:00"),
-                                             config.get("asian_box_end", "08:00")):
+        if not is_time_between(config.get("asian_box_start", "02:00"), cutoff, now=current_time):
+            if not is_time_between(config.get("asian_box_start", "02:00"),
+                                   config.get("asian_box_end", "08:00"), now=current_time):
                 cutoff_h, cutoff_m = map(int, cutoff.split(":"))
                 current_minutes = int(current_hour_str[:2]) * 60 + int(current_hour_str[3:])
                 if current_minutes > cutoff_h * 60 + cutoff_m:
