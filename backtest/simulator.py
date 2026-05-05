@@ -148,17 +148,22 @@ class BacktestSimulator:
             candle_high = current_candle.get("high", 0)
 
             config = MARKET_CONFIG.get(pos["asset"], {})
-            be_threshold = config.get("be_threshold", 1.0)
+            be_threshold = config.get("be_threshold", 2.0)
 
             if pos["etat"] == "SHIELD":
-                if pos["direction"] == "BUY":
-                    profit_points = (candle_high - pos["entry_price"]) / self._price_per_point(pos["asset"])
-                    pnl_flottant = profit_points * POINT_VALUES.get(pos["asset"], 10.0) * pos["lot_size"]
-                else:
-                    profit_points = (pos["entry_price"] - candle_low) / self._price_per_point(pos["asset"])
-                    pnl_flottant = profit_points * POINT_VALUES.get(pos["asset"], 10.0) * pos["lot_size"]
+                close_price = float(current_candle.get("close", 0))
 
-                seuil_be = be_threshold * atr_m1 * POINT_VALUES.get(pos["asset"], 10.0) * pos["lot_size"] / self._price_per_point(pos["asset"])
+                if pos["direction"] == "BUY":
+                    profit_points = (close_price - pos["entry_price"]) / self._price_per_point(pos["asset"])
+                else:
+                    profit_points = (pos["entry_price"] - close_price) / self._price_per_point(pos["asset"])
+
+                if profit_points <= 0:
+                    continue  # Pas en profit sur le close → pas de BE
+
+                pnl_flottant = profit_points * POINT_VALUES.get(pos["asset"], 10.0) * pos["lot_size"]
+
+                seuil_be = be_threshold * 2 * atr_m1 * POINT_VALUES.get(pos["asset"], 10.0) * pos["lot_size"] / self._price_per_point(pos["asset"])
 
                 if pnl_flottant >= seuil_be:
                     pos["etat"] = "TRACKER"
