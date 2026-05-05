@@ -1,0 +1,41 @@
+=======================================================
+  ORB STRUCTURE PRO v2.0 — Backtest Report
+  Strategie: STRUCTURE_TRAP  |  Actif: EURUSD
+  Periode: 2024-10-01 -> 2024-11-01
+=======================================================
+
+--- METRIQUES DE BASE ---
+  Trades total       : 87
+  Winning trades     : 0
+  Losing trades      : 87
+  Win Rate           : 0.0%
+
+--- METRIQUES DE PROFIT ---
+  PnL total          : -1886.33
+  PnL total (%)      : -75.7%
+  Avg Win            : 0.00
+  Avg Loss           : 21.68
+  Profit Factor      : 0.00
+  Expectancy         : 0.00
+
+--- METRIQUES DE RISQUE ---
+  Max Drawdown       : 1701.93 (68.3%)
+  Max Daily DD       : 91.36 (14.0%)
+  Sharpe Ratio       : 0.00
+  Calmar Ratio       : -1.11
+
+--- METRIQUES PULSE ---
+  Shield (SL)        : 62
+  Tracker            : 0
+  Rocket             : 0 (0.0%)
+
+--- METRIQUES THE5ERS ---
+  Max Daily DD (%)   : 14.0%
+  Daily Limit Hits   : 0
+
+--- FREQUENCE ---
+  Avg Duration (min) : 4.1
+  Best Month         : 60.00
+  Worst Month        : 2.00
+
+=======================================================
