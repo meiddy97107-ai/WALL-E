@@ -11,7 +11,7 @@ from indicators.atr import calculate_atr
 from indicators.ema import calculate_ema, get_slope
 from indicators.bollinger import calculate_bollinger
 from utils.logger import get_logger
-from utils.time_utils import is_time_between, get_current_paris_time
+from utils.time_utils import get_current_paris_time
 from config.market_config import MARKET_CONFIG
 
 logger = get_logger("strategy_structure_trap")
@@ -58,6 +58,22 @@ class StructureTrap:
         self.state = {}
         self._asian_box_cache = {}
         self._diag = self._init_diag()
+
+    def _get_backtest_time(self, asset: str):
+        """Retourne le temps courant depuis les donnees M1 (backtest-safe)."""
+        candles = self.data_feed.get_candles(asset, "M1", 2)
+        if candles.empty:
+            return get_current_paris_time()
+        return candles["time"].iloc[-1]
+
+    @staticmethod
+    def _is_time_between_str(current_hhmm: str, start: str, end: str) -> bool:
+        current_minutes = int(current_hhmm[:2]) * 60 + int(current_hhmm[3:])
+        start_minutes = int(start[:2]) * 60 + int(start[3:])
+        end_minutes = int(end[:2]) * 60 + int(end[3:])
+        if start_minutes <= end_minutes:
+            return start_minutes <= current_minutes <= end_minutes
+        return current_minutes >= start_minutes or current_minutes <= end_minutes
 
     # ──────────────────────────────────────────
     # POINT D'ENTREE PRINCIPAL
@@ -311,8 +327,13 @@ class StructureTrap:
     def _compute_orb(self, asset: str, candles_m15: pd.DataFrame,
                      config: dict) -> dict | None:
         """Calcule l'Opening Range Breakout."""
-        if not is_time_between(config.get("session_start", "16:00"),
-                               config.get("session_end", "21:45")):
+        current_time = self._get_backtest_time(asset)
+        current_hour_str = current_time.strftime("%H:%M")
+        if not self._is_time_between_str(
+            current_hour_str,
+            config.get("session_start", "16:00"),
+            config.get("session_end", "21:45"),
+        ):
             return None
 
         orb_start = config.get("orb_start", "15:30")
@@ -400,7 +421,9 @@ class StructureTrap:
     def _compute_asian_box(self, asset: str, candles_m15: pd.DataFrame,
                            config: dict) -> dict | None:
         """Calcule la boite asiatique."""
-        today = get_current_paris_time().strftime("%Y-%m-%d")
+        current_time = candles_m15["time"].iloc[-1]
+        today = current_time.strftime("%Y-%m-%d")
+        current_hour_str = current_time.strftime("%H:%M")
         cache = self._asian_box_cache.get(asset, {})
 
         # Si la box du jour existe deja, la reutiliser directement.
@@ -430,16 +453,16 @@ class StructureTrap:
         # Pas de cache du jour: la box ne se calcule que dans la fenetre 02:00-08:00.
         box_start = config.get("asian_box_start", "02:00")
         box_end = config.get("asian_box_end", "08:00")
-        if not is_time_between(box_start, box_end):
+        if not self._is_time_between_str(current_hour_str, box_start, box_end):
             return None
 
         cutoff = config.get("signal_cutoff", "11:30")
-        if not is_time_between(config.get("asian_box_start", "02:00"), cutoff):
-            if not is_time_between(config.get("asian_box_start", "02:00"),
-                                   config.get("asian_box_end", "08:00")):
-                now = get_current_paris_time()
+        if not self._is_time_between_str(current_hour_str, config.get("asian_box_start", "02:00"), cutoff):
+            if not self._is_time_between_str(current_hour_str, config.get("asian_box_start", "02:00"),
+                                             config.get("asian_box_end", "08:00")):
                 cutoff_h, cutoff_m = map(int, cutoff.split(":"))
-                if now.hour * 60 + now.minute > cutoff_h * 60 + cutoff_m:
+                current_minutes = int(current_hour_str[:2]) * 60 + int(current_hour_str[3:])
+                if current_minutes > cutoff_h * 60 + cutoff_m:
                     return None
 
         candles_m15["time_str"] = candles_m15["time"].dt.strftime("%H:%M")
@@ -533,14 +556,19 @@ class StructureTrap:
 
     def _is_in_trading_window(self, asset: str, config: dict) -> bool:
         """Verifie si l'heure actuelle est dans la fenetre de trading."""
+        current_time = self._get_backtest_time(asset)
+        current_hour_str = current_time.strftime("%H:%M")
         contexte = config.get("contexte", "")
         if contexte == "orb":
-            return is_time_between(config.get("session_start", "16:00"),
-                                   config.get("session_end", "21:45"))
+            return self._is_time_between_str(
+                current_hour_str,
+                config.get("session_start", "16:00"),
+                config.get("session_end", "21:45"),
+            )
         elif contexte == "asian_box":
             cutoff = config.get("signal_cutoff", "11:30")
             box_start = config.get("asian_box_start", "02:00")
-            return is_time_between(box_start, cutoff)
+            return self._is_time_between_str(current_hour_str, box_start, cutoff)
         elif contexte == "bollinger":
             return True
         return False
